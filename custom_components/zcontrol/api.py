@@ -126,12 +126,14 @@ class ZControlApiClient:
             headers["Authorization"] = f"Bearer {self._auth_token}"
         return headers
 
-    async def get_devices(self) -> list[dict[str, Any]]:
+    async def get_devices(self, device_id: str | None = None) -> list[dict[str, Any]]:
         """Get all devices with their status.
 
         Returns a list of locations, each containing devices.
         """
         url = f"{API_BASE_URL}/Locations/user/devices/detail"
+        if device_id is not None:
+            url += f"/{device_id}/0"
 
         try:
             async with self._session.get(
@@ -147,8 +149,8 @@ class ZControlApiClient:
         except aiohttp.ClientError as err:
             raise ZControlApiError(f"Connection error: {err}") from err
 
-    async def get_device_status(self, device_id: str) -> dict[str, Any]:
-        """Get detailed status for a specific device."""
+    async def get_device_status(self, device_id: str) -> list[dict[str, Any]]:
+        """Get the portal detail rows (description/value) for a device."""
         url = f"{API_BASE_URL}/devices/DeviceStatusDetail/{device_id}/WebAppDetail/0"
 
         try:

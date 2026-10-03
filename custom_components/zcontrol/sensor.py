@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
+import math
+import re
 from zoneinfo import ZoneInfo
 import logging
 from typing import Any
@@ -14,7 +17,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+from homeassistant.const import (
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -56,6 +64,127 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class ZControlDetailSensorDescription(SensorEntityDescription):
+    """A numeric reading identified by its exact portal description."""
+
+    detail_name: str
+    value_unit: str = ""
+
+
+DETAIL_SENSOR_DESCRIPTIONS: tuple[ZControlDetailSensorDescription, ...] = (
+    ZControlDetailSensorDescription(
+        key="battery_voltage",
+        name="Battery Voltage",
+        detail_name="Battery Voltage",
+        value_unit="V",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        suggested_display_precision=2,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    ZControlDetailSensorDescription(
+        key="battery_current",
+        name="Battery Current",
+        detail_name="Battery Current",
+        value_unit="A",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    ZControlDetailSensorDescription(
+        key="dc_pump_current",
+        name="DC Pump Current",
+        detail_name="DC Pump Current",
+        value_unit="A",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    ZControlDetailSensorDescription(
+        key="operational_float_count",
+        name="Operational Float Count",
+        detail_name="Operational Float Count",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    ZControlDetailSensorDescription(
+        key="high_water_float_count",
+        name="High Water Float Count",
+        detail_name="High Water Float Count",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    ZControlDetailSensorDescription(
+        key="pump_runtime",
+        name="Pump Runtime",
+        detail_name="Pump Runtime",
+        value_unit="duration",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    ZControlDetailSensorDescription(
+        key="system_run_time",
+        name="System Run Time",
+        detail_name="System Run Time",
+        value_unit="duration",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_unit_of_measurement=UnitOfTime.DAYS,
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    ZControlDetailSensorDescription(
+        key="up_time",
+        name="Up Time",
+        detail_name="Up Time",
+        value_unit="duration",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_unit_of_measurement=UnitOfTime.DAYS,
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+)
+
+
+def detail_descriptions(
+    device: dict[str, Any],
+) -> list[ZControlDetailSensorDescription]:
+    """Create only readings that the cloud actually reports."""
+    names = {
+        row.get("description")
+        for row in device.get("sensorDetails", [])
+        if isinstance(row, dict)
+    }
+    return [
+        description
+        for description in DETAIL_SENSOR_DESCRIPTIONS
+        if description.detail_name in names
+    ]
+
+
+def parse_detail_value(value: Any, unit: str) -> float | int | None:
+    """Parse portal numbers or English duration text, rejecting unknown units."""
+    if not isinstance(value, str):
+        return None
+    if unit == "duration":
+        # The portal reports e.g. "1 Min" or "13 Hours, 40 Mins".
+        pattern = r"(\d+)\s*(Days?|Hours?|Minutes?|Mins?|Seconds?|Secs?)"
+        parts = re.findall(pattern, value, re.IGNORECASE)
+        if not parts or re.sub(pattern, "", value, flags=re.IGNORECASE).strip(" ,"):
+            return None
+        factors = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
+        return sum(int(number) * factors[label[0].lower()] for number, label in parts)
+    pattern = r"([+-]?\d+(?:\.\d+)?)" + (rf"\s*{re.escape(unit)}" if unit else "")
+    match = re.fullmatch(pattern, value.strip())
+    if match is None:
+        return None
+    number = float(match[1])
+    if not math.isfinite(number):
+        return None
+    if not unit:
+        return int(number) if number >= 0 and number.is_integer() else None
+    return number
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ZControlConfigEntry,
@@ -67,7 +196,7 @@ async def async_setup_entry(
     entities: list[ZControlSensor] = []
 
     for device_id, device in coordinator.data.get("devices", {}).items():
-        for description in SENSOR_DESCRIPTIONS:
+        for description in (*SENSOR_DESCRIPTIONS, *detail_descriptions(device)):
             entities.append(
                 ZControlSensor(
                     coordinator=coordinator,
@@ -126,6 +255,17 @@ class ZControlSensor(CoordinatorEntity[ZControlCoordinator], SensorEntity):
         """Return the sensor value."""
         device = self._device_data
         if device is None:
+            return None
+
+        if isinstance(self.entity_description, ZControlDetailSensorDescription):
+            for row in device.get("sensorDetails", []):
+                if (
+                    isinstance(row, dict)
+                    and row.get("description") == self.entity_description.detail_name
+                ):
+                    return parse_detail_value(
+                        row.get("value"), self.entity_description.value_unit
+                    )
             return None
 
         key = self.entity_description.key

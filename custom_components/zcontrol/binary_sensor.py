@@ -75,6 +75,28 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[ZControlBinarySensorEntityDescription, ...] = 
 )
 
 
+ADDITIONAL_STATUS_DESCRIPTIONS: tuple[ZControlBinarySensorEntityDescription, ...] = (
+    ZControlBinarySensorEntityDescription(
+        key="system_ready",
+        name="System Ready Alarm",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        status_name="System Ready",
+    ),
+    ZControlBinarySensorEntityDescription(
+        key="dc_pump",
+        name="DC Pump Alarm",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        status_name="DC Pump",
+    ),
+    ZControlBinarySensorEntityDescription(
+        key="float_status",
+        name="Float Status Alarm",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        status_name="Float Status",
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ZControlConfigEntry,
@@ -86,7 +108,15 @@ async def async_setup_entry(
     entities: list[ZControlBinarySensor] = []
 
     for device_id, device in coordinator.data.get("devices", {}).items():
-        for description in BINARY_SENSOR_DESCRIPTIONS:
+        # Keep legacy entities and their unique IDs for existing installations.
+        # Additional statuses are exposed only when the device reports them;
+        # family identifiers are not consistent product model names.
+        descriptions = list(BINARY_SENSOR_DESCRIPTIONS)
+        for description in ADDITIONAL_STATUS_DESCRIPTIONS:
+            status = coordinator.get_device_status(device_id, description.status_name)
+            if status is not None:
+                descriptions.append(description)
+        for description in descriptions:
             entities.append(
                 ZControlBinarySensor(
                     coordinator=coordinator,
@@ -162,6 +192,17 @@ class ZControlBinarySensor(CoordinatorEntity[ZControlCoordinator], BinarySensorE
         status_name = self.entity_description.status_name
         if status_name:
             status = self.coordinator.get_device_status(self._device_id, status_name)
+            if status is None and key == "ac_power":
+                # The 508 portal asserts AC Power On when mains is present.
+                # Keep the existing problem-sensor polarity and legacy mapping.
+                power = self.coordinator.get_device_status(
+                    self._device_id, "AC Power On"
+                )
+                if power is not None:
+                    asserted = power.get("assertedValue")
+                    if isinstance(asserted, (bool, int)) and asserted in (0, 1):
+                        return not bool(asserted)
+                return None
             if status:
                 # Check for fault or active alarm
                 is_fault = status.get("isFault", 0)

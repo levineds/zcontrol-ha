@@ -3,7 +3,7 @@
   "name": "Z-Control Sump Pump Alarm",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/",
+  "documentation": "https://github.com/levineds/zcontrol-ha",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "requirements": ["aiohttp>=3.8.0"],

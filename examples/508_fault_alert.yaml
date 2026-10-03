@@ -1,0 +1,22 @@
+id: zcontrol_508_fault_alert
+alias: Z-Control 508 fault alert
+description: Notify once when a reported 508 fault or alarm starts.
+trigger:
+  - platform: state
+    entity_id:
+      - binary_sensor.sump_pump_system_ready_alarm
+      - binary_sensor.sump_pump_dc_pump_alarm
+      - binary_sensor.sump_pump_float_status_alarm
+      - binary_sensor.sump_pump_battery
+    to: "on"
+condition: []
+action:
+  - service: persistent_notification.create
+    data:
+      notification_id: "zcontrol_{{ trigger.entity_id }}"
+      title: Sump system alarm
+      message: >-
+        {{ trigger.to_state.name }} reports a fault or alarm.
+        Check the sump system and Z-Control for the cause.
+mode: queued
+max: 10

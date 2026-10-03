@@ -75,11 +75,46 @@ class ZControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     device["locationID"] = location.get("locationID")
                     device["locationHasFault"] = location.get("locationHasFault", False)
                     devices[device_id] = device
+                    # The 508 overview omits substatuses and numerical readings.
+                    # Identify capabilities, not the API's numeric family value.
+                    names = {
+                        row.get("statusName")
+                        for row in device.get("deviceStatusList", [])
+                    }
+                    if {"System Ready", "DC Pump", "Float Status"} <= names:
+                        await self._fetch_device_details(device_id, device)
 
         return {
             "locations": locations,
             "devices": devices,
         }
+
+    async def _fetch_device_details(
+        self, device_id: str, device: dict[str, Any]
+    ) -> None:
+        """Read optional portal data without losing the overview on an outage."""
+        device["statusDetails"] = []
+        device["sensorDetails"] = []
+        try:
+            locations = await self.client.get_devices(device_id)
+            if isinstance(locations, list):
+                for location in locations:
+                    for detail in location.get("devices", []):
+                        if detail.get("deviceID") == device_id:
+                            rows = detail.get("deviceStatusList")
+                            if isinstance(rows, list):
+                                device["statusDetails"] = [
+                                    row for row in rows if isinstance(row, dict)
+                                ]
+        except (ZControlApiError, TimeoutError):
+            _LOGGER.debug("Optional status details unavailable; retrying next update")
+        try:
+            rows = await self.client.get_device_status(device_id)
+            if isinstance(rows, list):
+                device["sensorDetails"] = [row for row in rows if isinstance(row, dict)]
+        except (ZControlApiError, TimeoutError):
+            _LOGGER.debug("Optional sensor details unavailable; retrying next update")
+        # Authentication errors propagate to the normal reauthentication flow.
 
     def get_device(self, device_id: str) -> dict[str, Any] | None:
         """Get device data by ID."""
@@ -87,7 +122,9 @@ class ZControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return self.data.get("devices", {}).get(device_id)
 
-    def get_device_status(self, device_id: str, status_name: str) -> dict[str, Any] | None:
+    def get_device_status(
+        self, device_id: str, status_name: str
+    ) -> dict[str, Any] | None:
         """Get a specific status entry from a device's statusList.
 
         Args:
@@ -100,7 +137,9 @@ class ZControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if device is None:
             return None
 
-        status_list = device.get("deviceStatusList", [])
+        status_list = device.get("deviceStatusList", []) + device.get(
+            "statusDetails", []
+        )
         for status in status_list:
             if status.get("statusName") == status_name:
                 return status

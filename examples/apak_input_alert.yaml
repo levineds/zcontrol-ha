@@ -1,0 +1,20 @@
+id: zcontrol_apak_input_alert
+alias: Z-Control APak input alert
+description: Notify when an APak alarm input activates.
+trigger:
+  - platform: state
+    entity_id:
+      - binary_sensor.sump_alarm_input_1
+      - binary_sensor.sump_alarm_input_2
+    to: "on"
+condition: []
+action:
+  - service: persistent_notification.create
+    data:
+      notification_id: "zcontrol_{{ trigger.entity_id }}"
+      title: Sump alarm input active
+      message: >-
+        {{ trigger.to_state.name }} is in alarm.
+        Check the connected input and sump system immediately.
+mode: queued
+max: 10

@@ -1,0 +1,18 @@
+id: zcontrol_offline_alert
+alias: Z-Control offline alert
+description: Ignore short interruptions in cloud connectivity.
+trigger:
+  - platform: state
+    entity_id: binary_sensor.sump_pump_online
+    to: "off"
+    for: "00:30:00"
+condition: []
+action:
+  - service: persistent_notification.create
+    data:
+      notification_id: zcontrol_sump_offline
+      title: Sump monitoring offline
+      message: >-
+        The sump controller has been offline for 30 minutes.
+        Check its power, network, and Z-Control connection.
+mode: single

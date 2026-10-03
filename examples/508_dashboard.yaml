@@ -1,0 +1,19 @@
+type: entities
+title: Sump system
+entities:
+  - binary_sensor.sump_pump_online
+  - binary_sensor.sump_pump_system_ready_alarm
+  - binary_sensor.sump_pump_dc_pump_alarm
+  - binary_sensor.sump_pump_float_status_alarm
+  - binary_sensor.sump_pump_battery
+  - binary_sensor.sump_pump_ac_power
+  - sensor.sump_pump_alarm_count
+  - sensor.sump_pump_last_heartbeat
+  - sensor.sump_pump_battery_voltage
+  - sensor.sump_pump_battery_current
+  - sensor.sump_pump_dc_pump_current
+  - sensor.sump_pump_operational_float_count
+  - sensor.sump_pump_high_water_float_count
+  - sensor.sump_pump_pump_runtime
+  - sensor.sump_pump_system_run_time
+  - sensor.sump_pump_up_time
