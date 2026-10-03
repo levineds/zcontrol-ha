@@ -1,16 +1,25 @@
 """Config flow for Z-Control integration."""
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 
 import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
 
 from .api import ZControlApiClient, ZControlAuthError, ZControlApiError
-from .const import DOMAIN
+from .const import CONF_ACCOUNT_TIME_ZONE, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +35,12 @@ class ZControlConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Z-Control."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> ZControlOptionsFlow:
+        """Return the options flow for this entry."""
+        return ZControlOptionsFlow(config_entry)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -114,4 +129,46 @@ class ZControlConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 CONF_EMAIL: reauth_entry.data[CONF_EMAIL],
             },
+        )
+
+
+class ZControlOptionsFlow(OptionsFlow):
+    """Configure interpretation of timestamps without an explicit offset."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize the options flow."""
+        self._config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the Z-Control account timezone."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                time_zone = cv.time_zone(user_input[CONF_ACCOUNT_TIME_ZONE])
+            except vol.Invalid:
+                errors[CONF_ACCOUNT_TIME_ZONE] = "invalid_time_zone"
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        **self._config_entry.options,
+                        CONF_ACCOUNT_TIME_ZONE: time_zone,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_ACCOUNT_TIME_ZONE,
+                        default=self._config_entry.options.get(
+                            CONF_ACCOUNT_TIME_ZONE, self.hass.config.time_zone
+                        ),
+                    ): str,
+                }
+            ),
+            errors=errors,
         )

@@ -67,5 +67,19 @@
         "name": "Reset Device"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Z-Control options",
+        "description": "Set the timezone used by your Z-Control account for heartbeat timestamps without an offset. Explicit timestamp offsets are preserved.",
+        "data": {
+          "account_time_zone": "Z-Control account timezone (for example, America/Chicago)"
+        }
+      }
+    },
+    "error": {
+      "invalid_time_zone": "Enter a valid timezone, for example America/Chicago."
+    }
   }
 }

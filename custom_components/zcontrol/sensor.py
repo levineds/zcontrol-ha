@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from zoneinfo import ZoneInfo
 import logging
 from typing import Any
 
@@ -23,6 +22,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import ZControlConfigEntry
 from .const import DOMAIN
 from .coordinator import ZControlCoordinator
+from .entity import async_setup_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,20 +64,18 @@ async def async_setup_entry(
     """Set up Z-Control sensors from a config entry."""
     coordinator = entry.runtime_data.coordinator
 
-    entities: list[ZControlSensor] = []
-
-    for device_id, device in coordinator.data.get("devices", {}).items():
-        for description in SENSOR_DESCRIPTIONS:
-            entities.append(
-                ZControlSensor(
-                    coordinator=coordinator,
-                    device_id=device_id,
-                    device=device,
-                    description=description,
-                )
+    def create_entities(device_id: str, device: dict[str, Any]) -> list[ZControlSensor]:
+        return [
+            ZControlSensor(
+                coordinator=coordinator,
+                device_id=device_id,
+                device=device,
+                description=description,
             )
+            for description in SENSOR_DESCRIPTIONS
+        ]
 
-    async_add_entities(entities)
+    async_setup_entities(entry, async_add_entities, create_entities)
 
 
 class ZControlSensor(CoordinatorEntity[ZControlCoordinator], SensorEntity):
@@ -139,27 +137,23 @@ class ZControlSensor(CoordinatorEntity[ZControlCoordinator], SensorEntity):
             return None
 
         if key == "alarm_count":
-            return device.get("alarmCount", 0)
+            return device.get("alarmCount")
 
         if key == "last_heartbeat":
-            # Parse the heartbeat timestamp
             heartbeat = device.get("lastHeartbeat")
-            if heartbeat:
-                # Try different formats
-                for fmt in [
-                    "%m-%d-%Y %I:%M:%S %p",  # "01-20-2026 6:20:41 PM"
-                    "%Y-%m-%dT%H:%M:%S",      # ISO format
-                    "%Y-%m-%dT%H:%M:%S.%f",   # ISO with microseconds
-                ]:
-                    try:
-                        dt = datetime.strptime(heartbeat, fmt)
-                        # API returns time in user's local timezone (from their account settings)
-                        # Use HA's configured timezone
-                        tz = ZoneInfo(self.coordinator.hass.config.time_zone)
-                        return dt.replace(tzinfo=tz)
-                    except ValueError:
-                        continue
-            return None
+            if not isinstance(heartbeat, str) or not heartbeat:
+                return None
+            try:
+                dt = datetime.fromisoformat(heartbeat)
+            except ValueError:
+                try:
+                    dt = datetime.strptime(heartbeat, "%m-%d-%Y %I:%M:%S %p")
+                except ValueError:
+                    return None
+            # Preserve explicit offsets. Naive timestamps use the account timezone.
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=self.coordinator.account_time_zone)
+            return dt
 
         if key == "firmware":
             return device.get("firmwareVersion")

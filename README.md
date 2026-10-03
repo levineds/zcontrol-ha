@@ -29,7 +29,7 @@ This integration connects to the Z-Control cloud service (zcontrolcloud.com) to 
 
 - A Zoeller Z-Control compatible device (e.g., APak alarm system)
 - An account at [zcontrolcloud.com](https://account.zcontrolcloud.com)
-- Home Assistant 2024.1 or newer
+- Home Assistant 2024.11 or newer
 
 ## Installation
 
@@ -57,6 +57,22 @@ This integration connects to the Z-Control cloud service (zcontrolcloud.com) to 
 4. Enter your zcontrolcloud.com email and password
 5. Your device(s) will be automatically discovered
 
+Devices added to your Z-Control account later are discovered during normal
+polling, without reloading the integration. Entity unique IDs are unchanged;
+devices that temporarily disappear become unavailable and reuse their existing
+entities when they return.
+
+### Account timezone
+
+Heartbeat timestamps may include an explicit UTC offset, which is preserved.
+Timestamps without an offset use Home Assistant's timezone by default. If your
+Z-Control account uses a different timezone, open the integration's **Configure**
+options and enter the account's IANA timezone (for example, `America/Chicago`).
+Saving a changed timezone reloads the integration. This changes timestamp
+interpretation in Home Assistant; it does not change settings on Z-Control or
+the physical device. A timestamp without an offset remains ambiguous during a
+repeated hour at the end of daylight saving time.
+
 ## Entities
 
 After setup, the following entities are created for each device:
@@ -69,7 +85,7 @@ After setup, the following entities are created for each device:
 | `binary_sensor.*_ac_power` | Binary Sensor | AC power fault |
 | `binary_sensor.*_battery` | Binary Sensor | Battery fault |
 | `sensor.*_wifi_signal` | Sensor | WiFi signal strength (dBm) |
-| `sensor.*_alarm_count` | Sensor | Number of active alarms |
+| `sensor.*_alarm_count` | Sensor | Number of active alarms; unknown if the field is missing |
 | `sensor.*_last_heartbeat` | Sensor | Last device check-in time |
 | `sensor.*_firmware` | Sensor | Firmware version (disabled by default) |
 | `button.*_silence_alarm` | Button | Silence the active alarm |
@@ -89,6 +105,14 @@ logger:
     custom_components.zcontrol: debug
 ```
 
+### Temporary connection failures
+
+A network/API failure, including one during automatic reauthentication, leaves
+the integration unavailable and retries at the next polling interval. It does
+not request new credentials. An actual authentication failure starts Home
+Assistant's reauthentication flow. Failed setup attempts close their HTTP session
+before Home Assistant retries.
+
 ### Authentication Issues
 If you get authentication errors, verify:
 1. Your email and password work at [zcontrolcloud.com](https://account.zcontrolcloud.com)
@@ -97,6 +121,18 @@ If you get authentication errors, verify:
 ## Contributing
 
 Contributions are welcome! Please open an issue or pull request on GitHub.
+
+With Home Assistant 2024.11 or newer, pytest, and pytest-asyncio installed, run:
+
+```sh
+python -m pytest -q
+python -m compileall -q custom_components tests
+```
+
+The tests cover session cleanup, update errors, alarm-count missing data,
+heartbeat formats and timezones, config/reauth/options flows, and entity discovery.
+A simulated-cloud integration test runs real Home Assistant platform setup,
+options reload, and unload. No live cloud credentials or device commands are used.
 
 ## Disclaimer
 

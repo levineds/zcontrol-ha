@@ -16,6 +16,7 @@ from . import ZControlConfigEntry
 from .api import ZControlApiClient
 from .const import DOMAIN
 from .coordinator import ZControlCoordinator
+from .entity import async_setup_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,21 +54,19 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     client = entry.runtime_data.client
 
-    entities: list[ZControlButton] = []
-
-    for device_id, device in coordinator.data.get("devices", {}).items():
-        for description in BUTTON_DESCRIPTIONS:
-            entities.append(
-                ZControlButton(
-                    coordinator=coordinator,
-                    client=client,
-                    device_id=device_id,
-                    device=device,
-                    description=description,
-                )
+    def create_entities(device_id: str, device: dict[str, Any]) -> list[ZControlButton]:
+        return [
+            ZControlButton(
+                coordinator=coordinator,
+                client=client,
+                device_id=device_id,
+                device=device,
+                description=description,
             )
+            for description in BUTTON_DESCRIPTIONS
+        ]
 
-    async_add_entities(entities)
+    async_setup_entities(entry, async_add_entities, create_entities)
 
 
 class ZControlButton(CoordinatorEntity[ZControlCoordinator], ButtonEntity):

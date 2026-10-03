@@ -7,10 +7,10 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .api import ZControlApiClient, ZControlAuthError, ZControlApiError
-from .const import DOMAIN
+from .const import CONF_ACCOUNT_TIME_ZONE, DOMAIN
 from .coordinator import ZControlCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,35 +44,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZControlConfigEntry) -> 
     # Create session and client
     session = aiohttp.ClientSession()
 
-    client = ZControlApiClient(
-        session,
-        entry.data[CONF_EMAIL],
-        entry.data[CONF_PASSWORD],
-    )
-
+    setup_complete = False
     try:
+        client = ZControlApiClient(
+            session,
+            entry.data[CONF_EMAIL],
+            entry.data[CONF_PASSWORD],
+        )
         # Authenticate
         await client.authenticate()
+
+        coordinator = ZControlCoordinator(
+            hass, client, entry.options.get(CONF_ACCOUNT_TIME_ZONE)
+        )
+        await coordinator.async_config_entry_first_refresh()
+
+        entry.runtime_data = ZControlData(coordinator, client, session)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+        setup_complete = True
     except ZControlAuthError as err:
-        await session.close()
-        raise ConfigEntryNotReady(f"Authentication failed: {err}") from err
+        raise ConfigEntryAuthFailed("Authentication failed") from err
     except ZControlApiError as err:
-        await session.close()
         raise ConfigEntryNotReady(f"Connection failed: {err}") from err
-
-    # Create coordinator
-    coordinator = ZControlCoordinator(hass, client)
-
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
-
-    # Store runtime data
-    entry.runtime_data = ZControlData(coordinator, client, session)
-
-    # Set up platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    finally:
+        # Includes first-refresh/platform failures and cancelled setup attempts.
+        if not setup_complete:
+            await session.close()
 
     return True
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ZControlConfigEntry) -> None:
+    """Apply updated options by reloading the entry."""
+    time_zone = entry.options.get(CONF_ACCOUNT_TIME_ZONE, hass.config.time_zone)
+    if time_zone != entry.runtime_data.coordinator.account_time_zone.key:
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ZControlConfigEntry) -> bool:

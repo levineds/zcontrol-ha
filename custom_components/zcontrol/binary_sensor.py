@@ -25,6 +25,7 @@ from .const import (
     STATUS_INPUT_2,
 )
 from .coordinator import ZControlCoordinator
+from .entity import async_setup_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,20 +84,18 @@ async def async_setup_entry(
     """Set up Z-Control binary sensors from a config entry."""
     coordinator = entry.runtime_data.coordinator
 
-    entities: list[ZControlBinarySensor] = []
-
-    for device_id, device in coordinator.data.get("devices", {}).items():
-        for description in BINARY_SENSOR_DESCRIPTIONS:
-            entities.append(
-                ZControlBinarySensor(
-                    coordinator=coordinator,
-                    device_id=device_id,
-                    device=device,
-                    description=description,
-                )
+    def create_entities(device_id: str, device: dict[str, Any]) -> list[ZControlBinarySensor]:
+        return [
+            ZControlBinarySensor(
+                coordinator=coordinator,
+                device_id=device_id,
+                device=device,
+                description=description,
             )
+            for description in BINARY_SENSOR_DESCRIPTIONS
+        ]
 
-    async_add_entities(entities)
+    async_setup_entities(entry, async_add_entities, create_entities)
 
 
 class ZControlBinarySensor(CoordinatorEntity[ZControlCoordinator], BinarySensorEntity):

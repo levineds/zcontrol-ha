@@ -1,6 +1,7 @@
 """Constants for the Z-Control integration."""
 
 DOMAIN = "zcontrol"
+CONF_ACCOUNT_TIME_ZONE = "account_time_zone"
 
 # API URLs
 LOGIN_URL = "https://account.zcontrolcloud.com/Account/Login"

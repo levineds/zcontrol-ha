@@ -3,6 +3,7 @@
 import logging
 from datetime import timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -17,7 +18,12 @@ _LOGGER = logging.getLogger(__name__)
 class ZControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Z-Control data updates."""
 
-    def __init__(self, hass: HomeAssistant, client: ZControlApiClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: ZControlApiClient,
+        account_time_zone: str | None = None,
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass,
@@ -26,6 +32,7 @@ class ZControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.client = client
+        self.account_time_zone = ZoneInfo(account_time_zone or hass.config.time_zone)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the API.
@@ -45,14 +52,17 @@ class ZControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.info("Successfully re-authenticated with Z-Control")
                 # Retry the API call with the new token
                 return await self._fetch_devices()
-            except (ZControlAuthError, ZControlApiError) as reauth_err:
+            except ZControlAuthError as reauth_err:
                 # Re-authentication failed - credentials may have changed
                 _LOGGER.warning("Re-authentication failed: %s", reauth_err)
                 raise ConfigEntryAuthFailed(
                     "Failed to re-authenticate. Please update your credentials."
                 ) from reauth_err
+            except (ZControlApiError, TimeoutError) as err:
+                # An outage during login or the retry does not invalidate credentials.
+                raise UpdateFailed(str(err)) from err
 
-        except ZControlApiError as err:
+        except (ZControlApiError, TimeoutError) as err:
             # This will retry at the next interval
             raise UpdateFailed(str(err)) from err
         except Exception as err:
